@@ -1,0 +1,55 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Evaluate RLVR complex before-after",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}\\scripts\\evaluate_browsergym_rlvr.py",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "PLAYWRIGHT_BROWSERS_PATH": "${workspaceFolder}\\.playwright",
+        "NLTK_DATA": "${workspaceFolder}\\.nltk_data"
+      },
+      "args": [
+        "--policies",
+        "qwen,rlvr",
+        "--ollama-model",
+        "qwen2.5:0.5b",
+        "--model-no-images",
+        "--model-steps",
+        "6",
+        "--tasks",
+        "browsergym/social_rlvr.orders.priority_followup,browsergym/social_rlvr.schedule.design_review_shared_slot",
+        "--rlvr-policy",
+        "artifacts\\rlvr_training_complex\\learned_policy.json",
+        "--out",
+        "artifacts\\eval_qwen_text_complex_rlvr"
+      ]
+    },
+    {
+      "name": "Train RLVR complex tasks",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}\\scripts\\train_browsergym_rlvr.py",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "PLAYWRIGHT_BROWSERS_PATH": "${workspaceFolder}\\.playwright",
+        "NLTK_DATA": "${workspaceFolder}\\.nltk_data"
+      },
+      "args": [
+        "--ollama-model",
+        "qwen2.5:0.5b",
+        "--model-no-images",
+        "--model-steps",
+        "6",
+        "--tasks",
+        "browsergym/social_rlvr.orders.priority_followup,browsergym/social_rlvr.schedule.design_review_shared_slot",
+        "--out",
+        "artifacts\\rlvr_training_complex\\learned_policy.json"
+      ]
+    }
+  ]
+}

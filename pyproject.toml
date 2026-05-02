@@ -1,0 +1,32 @@
+[project]
+name = "social-rlvr-web"
+version = "0.1.0"
+description = "RLVR/GRPO research scaffold for autonomous browser agents."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "beautifulsoup4>=4.12",
+  "flask>=3.0",
+  "gymnasium>=0.29",
+  "pillow>=10.0",
+  "playwright==1.44",
+  "requests>=2.32",
+]
+
+[project.optional-dependencies]
+benchmarks = [
+  "browsergym-miniwob==0.14.3",
+  "browsergym-webarena==0.14.3",
+]
+dev = [
+  "pytest>=8.0",
+  "ruff>=0.6",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
