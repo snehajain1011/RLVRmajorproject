@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Any
 
 import playwright.sync_api
@@ -8,6 +9,7 @@ from browsergym.core.task import AbstractBrowserTask
 
 from social_rlvr_web.local_app import LocalAppServer
 from social_rlvr_web.tasks import TASKS, TaskSpec, fetch_state, reset_state
+from social_rlvr_web.variants import get_task_variant, normalize_variant_id
 
 
 class SocialRLVRBrowserGymTask(AbstractBrowserTask):
@@ -25,6 +27,7 @@ class SocialRLVRBrowserGymTask(AbstractBrowserTask):
         self.spec: TaskSpec = TASKS[self.task_id]
         self.server = LocalAppServer(port=port or self.port)
         self.base_url = self.server.base_url
+        self.variant_id = normalize_variant_id(os.environ.get("SOCIAL_RLVR_VARIANT_ID", "train_000"))
         self.steps = 0
         self.viewport = {"width": 1280, "height": 900}
         self.slow_mo = 100
@@ -32,10 +35,17 @@ class SocialRLVRBrowserGymTask(AbstractBrowserTask):
 
     def setup(self, page: playwright.sync_api.Page) -> tuple[str, dict[str, Any]]:
         self.server.start()
-        reset_state(self.base_url)
+        variant = get_task_variant(self.spec.task_id, self.variant_id)
+        reset_state(self.base_url, task_id=self.spec.task_id, variant_id=self.variant_id)
         self.steps = 0
         page.goto(f"{self.base_url}{self.spec.start_path}", wait_until="domcontentloaded")
-        return self.spec.instruction, {"task_id": self.spec.task_id, "base_url": self.base_url}
+        return variant.instruction, {
+            "task_id": self.spec.task_id,
+            "base_url": self.base_url,
+            "variant_id": variant.variant_id,
+            "split": variant.split,
+            "expected": variant.expected,
+        }
 
     def validate(
         self, page: playwright.sync_api.Page, chat_messages: list[str]

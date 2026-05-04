@@ -5,6 +5,8 @@
 - BrowserGym execution is real.
 - The task suite is defined in `docs/task_suite.md`.
 - Rewards are deterministic backend-state verifiers.
+- Deterministic train/val/test variants are implemented for the local tasks.
+- A dynamic oracle can solve variant tasks and is available for solvability checks and SFT data.
 - Ollama is installed.
 - These local models are installed:
   - `qwen2.5vl:3b`
@@ -70,7 +72,7 @@ mean_reward: 1.0
 mean_rrr: 1.0
 ```
 
-This proves the end-to-end improvement pipeline with the lightweight model. The current method is verifier-guided trajectory distillation, not weight-level GRPO fine-tuning: failed Qwen rollouts are recorded, a verifier-selected successful trajectory is added when needed, and the learned artifact is re-evaluated as an `rlvr` policy on the same task.
+This proves the end-to-end replay pipeline with the lightweight model. It is verifier-selected trajectory replay, not model learning: failed Qwen rollouts are recorded, a dynamic-oracle successful trajectory can be added, and the replay artifact is evaluated separately as a memorization baseline.
 
 ## Complex Task Expansion
 
@@ -109,7 +111,38 @@ mean_reward: 1.0
 mean_rrr: 1.0
 ```
 
-The zero-shot model failed both row-conditioned follow-up and scheduling. The learned `rlvr` artifact succeeded on both by replaying verifier-selected trajectories produced during the lightweight improvement loop.
+The zero-shot model failed both row-conditioned follow-up and scheduling. The replay artifact succeeded on both by replaying verifier-selected trajectories produced during the lightweight loop. This should not be described as actual RLVR.
+
+## Real RLVR Status
+
+Implemented scaffolding for the research-grade HPC path:
+
+```text
+src/social_rlvr_web/variants.py
+src/social_rlvr_web/oracle_policy.py
+src/social_rlvr_web/checkpoints.py
+src/social_rlvr_web/rollout.py
+src/social_rlvr_web/trained_policy.py
+scripts/generate_task_variants.py
+scripts/collect_oracle_trajectories.py
+scripts/build_sft_dataset.py
+scripts/train_sft_policy.py
+scripts/train_browser_rloo.py
+scripts/train_browser_grpo.py
+scripts/evaluate_generalization.py
+scripts/bootstrap_metrics.py
+scripts/render_rollout_debug_html.py
+scripts/run_hpc_main.sh
+```
+
+Current laptop validation:
+
+```text
+dynamic_oracle succeeds on train_000 and test_000 for report, orders, and schedule.
+terminal-continuation candidate scoring runs through ReplayCheckpoint.
+```
+
+Actual adapter training still requires the HPC environment with `torch`, `trl`, `peft`, `accelerate`, and CUDA.
 
 ## Next Research Step
 

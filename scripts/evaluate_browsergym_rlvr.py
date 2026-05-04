@@ -12,7 +12,9 @@ import gymnasium as gym
 
 import social_rlvr_web.browsergym_tasks  # noqa: F401
 from social_rlvr_web.model_policy import ModelPolicyError, OllamaVisionPolicy
-from social_rlvr_web.rlvr_policy import LearnedTrajectoryPolicy, RLVRPolicyError
+from social_rlvr_web.oracle_policy import DynamicOraclePolicy
+from social_rlvr_web.rlvr_policy import TrajectoryReplayPolicy, RLVRPolicyError
+from social_rlvr_web.variants import normalize_variant_id
 
 
 TASK_IDS = [
@@ -146,7 +148,9 @@ class VerifierSelectedPolicy:
         raise KeyError(f"No policy for {self.task_id}")
 
 
-def run_episode(task_id: str, policy: Policy, max_eval_steps: int) -> dict:
+def run_episode(task_id: str, policy: Policy, max_eval_steps: int, variant_id: str = "train_000") -> dict:
+    previous_variant = os.environ.get("SOCIAL_RLVR_VARIANT_ID")
+    os.environ["SOCIAL_RLVR_VARIANT_ID"] = normalize_variant_id(variant_id)
     env = gym.make(
         task_id,
         headless=True,
@@ -161,6 +165,8 @@ def run_episode(task_id: str, policy: Policy, max_eval_steps: int) -> dict:
     info = {"task_info": {"success": False, "verifier_message": "not evaluated"}}
     try:
         obs, reset_info = env.reset()
+        if hasattr(policy, "expected"):
+            policy.expected = reset_info.get("expected", {})
         for step_idx in range(1, max_eval_steps + 1):
             try:
                 action = policy.act(env, obs)
@@ -193,6 +199,10 @@ def run_episode(task_id: str, policy: Policy, max_eval_steps: int) -> dict:
                 break
     finally:
         env.close()
+        if previous_variant is None:
+            os.environ.pop("SOCIAL_RLVR_VARIANT_ID", None)
+        else:
+            os.environ["SOCIAL_RLVR_VARIANT_ID"] = previous_variant
 
     task_info = info.get("task_info", {})
     success = bool(task_info.get("success", False))
@@ -202,6 +212,8 @@ def run_episode(task_id: str, policy: Policy, max_eval_steps: int) -> dict:
     return {
         "policy": policy.name,
         "task_id": task_id,
+        "variant_id": normalize_variant_id(variant_id),
+        "split": normalize_variant_id(variant_id).split("_", 1)[0],
         "success": success,
         "reward": float(reward),
         "steps": steps,
@@ -216,11 +228,13 @@ def run_episode(task_id: str, policy: Policy, max_eval_steps: int) -> dict:
 
 def summarize(rows: list[dict]) -> list[dict]:
     summaries = []
-    for policy_name in sorted({row["policy"] for row in rows}):
-        subset = [row for row in rows if row["policy"] == policy_name]
+    keys = sorted({(row["policy"], row.get("split", "unknown")) for row in rows})
+    for policy_name, split in keys:
+        subset = [row for row in rows if row["policy"] == policy_name and row.get("split", "unknown") == split]
         summaries.append(
             {
                 "policy": policy_name,
+                "split": split,
                 "episodes": len(subset),
                 "success_rate": round(sum(row["success"] for row in subset) / len(subset), 4),
                 "mean_reward": round(sum(row["reward"] for row in subset) / len(subset), 4),
@@ -232,7 +246,7 @@ def summarize(rows: list[dict]) -> list[dict]:
 
 
 def print_table(rows: list[dict]) -> None:
-    headers = ["policy", "episodes", "success_rate", "mean_reward", "mean_steps", "mean_rrr"]
+    headers = ["policy", "split", "episodes", "success_rate", "mean_reward", "mean_steps", "mean_rrr"]
     widths = {header: len(header) for header in headers}
     for row in rows:
         for header in headers:
@@ -251,6 +265,8 @@ def write_artifacts(results: list[dict], summary: list[dict], out_dir: Path) -> 
             fieldnames=[
                 "policy",
                 "task_id",
+                "variant_id",
+                "split",
                 "success",
                 "reward",
                 "steps",
@@ -283,17 +299,19 @@ def main() -> None:
     parser.add_argument(
         "--policies",
         default="baseline,qwen,scripted",
-        help="Comma-separated: baseline,qwen,scripted,rlvr",
+        help="Comma-separated: baseline,qwen,scripted,dynamic_oracle,trajectory_replay,rlvr",
     )
     parser.add_argument("--ollama-model", default=os.environ.get("OLLAMA_MODEL", "qwen2.5vl"))
     parser.add_argument("--ollama-host", default=os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434"))
     parser.add_argument("--model-no-images", action="store_true")
     parser.add_argument(
-        "--rlvr-policy",
+        "--replay-policy",
         type=Path,
         default=Path("artifacts") / "rlvr_training" / "learned_policy.json",
-        help="Verifier-guided learned policy artifact used by --policies rlvr.",
+        help="Verifier-selected replay artifact used by --policies trajectory_replay/rlvr.",
     )
+    parser.add_argument("--rlvr-policy", type=Path, default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--variants", default="train_000", help="Comma-separated variant ids, e.g. train_000,test_000.")
     parser.add_argument(
         "--tasks",
         default=",".join(TASK_IDS),
@@ -312,7 +330,9 @@ def main() -> None:
             use_images=not args.model_no_images,
         ),
         "scripted": lambda: VerifierSelectedPolicy(),
-        "rlvr": lambda: LearnedTrajectoryPolicy(args.rlvr_policy),
+        "dynamic_oracle": lambda: DynamicOraclePolicy(),
+        "trajectory_replay": lambda: TrajectoryReplayPolicy(args.rlvr_policy or args.replay_policy),
+        "rlvr": lambda: TrajectoryReplayPolicy(args.rlvr_policy or args.replay_policy),
     }
     policies: list[Policy] = []
     for policy_name in [item.strip() for item in args.policies.split(",") if item.strip()]:
@@ -325,22 +345,25 @@ def main() -> None:
     if unknown_tasks:
         raise SystemExit(f"Unknown task ids: {sorted(unknown_tasks)}")
 
+    variant_ids = [normalize_variant_id(item.strip()) for item in args.variants.split(",") if item.strip()]
+
     results = []
     for _ in range(args.repeats):
         for policy in policies:
             for task_id in task_ids:
-                if isinstance(policy, HallucinationBaseline):
-                    max_steps = args.baseline_steps
-                elif isinstance(policy, (VerifierSelectedPolicy, LearnedTrajectoryPolicy)):
-                    max_steps = OPTIMAL_STEPS[task_id]
-                else:
-                    max_steps = args.model_steps
-                result = run_episode(task_id, policy, max_steps)
-                results.append(result)
-                print(
-                    f'{policy.name} | {task_id} | success={result["success"]} '
-                    f'rrr={result["rrr"]} | {result["verifier_message"]}'
-                )
+                for variant_id in variant_ids:
+                    if isinstance(policy, HallucinationBaseline):
+                        max_steps = args.baseline_steps
+                    elif isinstance(policy, (VerifierSelectedPolicy, TrajectoryReplayPolicy, DynamicOraclePolicy)):
+                        max_steps = max(OPTIMAL_STEPS[task_id], args.model_steps)
+                    else:
+                        max_steps = args.model_steps
+                    result = run_episode(task_id, policy, max_steps, variant_id=variant_id)
+                    results.append(result)
+                    print(
+                        f'{policy.name} | {task_id} | {variant_id} | success={result["success"]} '
+                        f'rrr={result["rrr"]} | {result["verifier_message"]}'
+                    )
 
     summary = summarize(results)
     print()

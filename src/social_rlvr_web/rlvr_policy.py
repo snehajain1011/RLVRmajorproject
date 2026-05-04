@@ -11,8 +11,8 @@ class RLVRPolicyError(RuntimeError):
 
 
 @dataclass
-class LearnedTrajectoryPolicy:
-    """Replay verifier-selected trajectories produced by the lightweight RLVR loop."""
+class TrajectoryReplayPolicy:
+    """Replay verifier-selected trajectories; this is memorization, not model learning."""
 
     artifact_path: Path
     name: str = ""
@@ -36,9 +36,9 @@ class LearnedTrajectoryPolicy:
             raise RLVRPolicyError(f"No learned task actions found in {self.artifact_path}")
 
         if not self.name:
-            method = artifact.get("method", "rlvr")
+            method = artifact.get("method", "trajectory_replay")
             base_policy = artifact.get("base_policy", "policy")
-            self.name = f"after_{method}_{base_policy}"
+            self.name = f"trajectory_replay_{method}_{base_policy}"
 
     def reset(self, task_id: str) -> None:
         self.task_id = task_id
@@ -54,3 +54,6 @@ class LearnedTrajectoryPolicy:
         action = actions[self.cursor]
         self.cursor += 1
         return action
+
+
+LearnedTrajectoryPolicy = TrajectoryReplayPolicy

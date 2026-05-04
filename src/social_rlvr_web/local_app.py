@@ -8,60 +8,15 @@ from typing import Any
 from flask import Flask, jsonify, redirect, render_template_string, request, url_for
 from werkzeug.serving import BaseWSGIServer, make_server
 
-
-CONTACTS = ["Aarav", "Diya", "Kabir", "Meera", "Riya", "Vivaan", "Zara"]
-
-IMAGES = [
-    {
-        "id": "img_city",
-        "title": "City lights",
-        "tags": ["urban", "night", "architecture"],
-        "gradient": "linear-gradient(135deg,#1d3557,#a8dadc)",
-    },
-    {
-        "id": "img_travel",
-        "title": "Aesthetic travel",
-        "tags": ["travel", "aesthetic", "mountains"],
-        "gradient": "linear-gradient(135deg,#2a9d8f,#f4a261)",
-    },
-    {
-        "id": "img_food",
-        "title": "Cafe dessert",
-        "tags": ["food", "dessert", "indoor"],
-        "gradient": "linear-gradient(135deg,#6d597a,#e56b6f)",
-    },
-]
-
-ORDERS = [
-    {
-        "owner": "Kabir",
-        "priority": "Normal",
-        "reference": "REF-KABIR-118",
-        "status": "Packed",
-    },
-    {
-        "owner": "Meera",
-        "priority": "High",
-        "reference": "REF-MEERA-774",
-        "status": "Awaiting follow-up",
-    },
-    {
-        "owner": "Riya",
-        "priority": "Low",
-        "reference": "REF-RIYA-209",
-        "status": "Queued",
-    },
-]
-
-SLOTS = [
-    "Mon 09:00",
-    "Wed 11:00",
-    "Fri 14:00",
-]
+from social_rlvr_web.variants import CONTACTS, get_task_variant
 
 
 @dataclass
 class AppState:
+    task_id: str = "report.extract_tracking_code"
+    variant_id: str = "train_000"
+    expected: dict[str, Any] = field(default_factory=dict)
+    page_data: dict[str, Any] = field(default_factory=dict)
     messages: list[dict[str, str]] = field(default_factory=list)
     shared_images: list[dict[str, str]] = field(default_factory=list)
     reports: list[dict[str, str]] = field(default_factory=list)
@@ -75,7 +30,21 @@ class AppState:
             "reports": deepcopy(self.reports),
             "followups": deepcopy(self.followups),
             "meetings": deepcopy(self.meetings),
+            "task_id": self.task_id,
+            "variant_id": self.variant_id,
+            "expected": deepcopy(self.expected),
+            "page_data": deepcopy(self.page_data),
         }
+
+
+def state_for_variant(task_id: str, variant_id: str) -> AppState:
+    variant = get_task_variant(task_id, variant_id)
+    return AppState(
+        task_id=task_id,
+        variant_id=variant.variant_id,
+        expected=deepcopy(variant.expected),
+        page_data=deepcopy(variant.page_data),
+    )
 
 
 BASE_CSS = """
@@ -124,10 +93,11 @@ def create_app() -> Flask:
 
     @app.get("/messages")
     def messages():
+        variant = get_task_variant("messages.last_five_new_year", app.config["STATE"].variant_id)
         return render_template_string(
             """
             <style>{{ css }}</style>
-            <header><h1>Friends</h1><p>Send "Happy New Year" to the last five friends.</p></header>
+            <header><h1>Friends</h1><p>{{ instruction }}</p></header>
             <main>
               <form method="post" action="/send-message" class="panel">
                 <label>Friend</label>
@@ -152,6 +122,7 @@ def create_app() -> Flask:
             """,
             contacts=CONTACTS,
             css=BASE_CSS,
+            instruction=variant.instruction,
             state=app.config["STATE"],
         )
 
@@ -167,10 +138,11 @@ def create_app() -> Flask:
 
     @app.get("/gallery")
     def gallery():
+        variant = get_task_variant("gallery.aesthetic_travel_to_meera", app.config["STATE"].variant_id)
         return render_template_string(
             """
             <style>{{ css }}</style>
-            <header><h1>Image Gallery</h1><p>Find an aesthetic travel image and send it to Meera.</p></header>
+            <header><h1>Image Gallery</h1><p>{{ instruction }}</p></header>
             <main class="grid">
               {% for image in images %}
                 <form method="post" action="/share-image" class="card">
@@ -191,7 +163,8 @@ def create_app() -> Flask:
             """,
             contacts=CONTACTS,
             css=BASE_CSS,
-            images=IMAGES,
+            images=variant.page_data["images"],
+            instruction=variant.instruction,
         )
 
     @app.post("/share-image")
@@ -206,16 +179,17 @@ def create_app() -> Flask:
 
     @app.get("/report")
     def report():
+        variant = get_task_variant("report.extract_tracking_code", app.config["STATE"].variant_id)
         return render_template_string(
             """
             <style>{{ css }}</style>
-            <header><h1>Project Report</h1><p>Extract the shipment tracking code into the report form.</p></header>
+            <header><h1>Project Report</h1><p>{{ instruction }}</p></header>
             <main>
               <section class="panel">
                 <h2>Order Details</h2>
-                <p>Order owner: Riya Shah</p>
-                <p>Invoice total: Rs. 4,820</p>
-                <p>Shipment tracking code: <strong>TRV-8429-IN</strong></p>
+                <p>Order owner: {{ page_data.owner }}</p>
+                <p>Invoice total: Rs. {{ page_data.invoice_total }}</p>
+                <p>Shipment tracking code: <strong>{{ page_data.tracking_code }}</strong></p>
               </section>
               <form method="post" action="/submit-report" class="panel">
                 <label>Tracking code</label>
@@ -225,6 +199,8 @@ def create_app() -> Flask:
             </main>
             """,
             css=BASE_CSS,
+            instruction=variant.instruction,
+            page_data=variant.page_data,
         )
 
     @app.post("/submit-report")
@@ -236,10 +212,11 @@ def create_app() -> Flask:
 
     @app.get("/orders")
     def orders():
+        variant = get_task_variant("orders.priority_followup", app.config["STATE"].variant_id)
         return render_template_string(
             """
             <style>{{ css }}</style>
-            <header><h1>Order Follow-up</h1><p>Find the high priority order and create the required follow-up.</p></header>
+            <header><h1>Order Follow-up</h1><p>{{ instruction }}</p></header>
             <main>
               <section class="panel">
                 <h2>Queue</h2>
@@ -276,7 +253,8 @@ def create_app() -> Flask:
             """,
             contacts=CONTACTS,
             css=BASE_CSS,
-            orders=ORDERS,
+            instruction=variant.instruction,
+            orders=variant.page_data["orders"],
         )
 
     @app.post("/create-followup")
@@ -292,21 +270,22 @@ def create_app() -> Flask:
 
     @app.get("/schedule")
     def schedule():
+        variant = get_task_variant("schedule.design_review_shared_slot", app.config["STATE"].variant_id)
         return render_template_string(
             """
             <style>{{ css }}</style>
-            <header><h1>Team Calendar</h1><p>Schedule a design review with Kabir and Zara in the only shared open slot.</p></header>
+            <header><h1>Team Calendar</h1><p>{{ instruction }}</p></header>
             <main>
               <section class="panel">
                 <h2>Availability</h2>
                 <table>
                   <thead>
-                    <tr><th>Person</th><th>Mon 09:00</th><th>Wed 11:00</th><th>Fri 14:00</th></tr>
+                    <tr><th>Person</th>{% for slot in slots %}<th>{{ slot }}</th>{% endfor %}</tr>
                   </thead>
                   <tbody>
-                    <tr><td>Kabir</td><td>Busy</td><td>Busy</td><td>Open</td></tr>
-                    <tr><td>Meera</td><td>Open</td><td>Busy</td><td>Busy</td></tr>
-                    <tr><td>Zara</td><td>Busy</td><td>Busy</td><td>Open</td></tr>
+                    {% for row in availability %}
+                      <tr><td>{{ row.person }}</td>{% for slot in slots %}<td>{{ row[slot] }}</td>{% endfor %}</tr>
+                    {% endfor %}
                   </tbody>
                 </table>
               </section>
@@ -331,7 +310,9 @@ def create_app() -> Flask:
             """,
             contacts=CONTACTS,
             css=BASE_CSS,
-            slots=SLOTS,
+            availability=variant.page_data["availability"],
+            instruction=variant.instruction,
+            slots=variant.page_data["slots"],
         )
 
     @app.post("/create-meeting")
@@ -347,12 +328,36 @@ def create_app() -> Flask:
 
     @app.post("/api/reset")
     def reset():
-        app.config["STATE"] = AppState()
+        payload = request.get_json(silent=True) or {}
+        task_id = payload.get("task_id") or "report.extract_tracking_code"
+        variant_id = payload.get("variant_id") or "train_000"
+        app.config["STATE"] = state_for_variant(task_id, variant_id)
         return jsonify({"ok": True})
 
     @app.get("/api/state")
     def state():
         return jsonify(app.config["STATE"].as_dict())
+
+    @app.post("/api/snapshot")
+    def snapshot():
+        return jsonify({"state": app.config["STATE"].as_dict()})
+
+    @app.post("/api/restore")
+    def restore():
+        payload = request.get_json(force=True)
+        state_payload = payload.get("state", payload)
+        app.config["STATE"] = AppState(
+            task_id=state_payload.get("task_id", "report.extract_tracking_code"),
+            variant_id=state_payload.get("variant_id", "train_000"),
+            expected=state_payload.get("expected", {}),
+            page_data=state_payload.get("page_data", {}),
+            messages=state_payload.get("messages", []),
+            shared_images=state_payload.get("shared_images", []),
+            reports=state_payload.get("reports", []),
+            followups=state_payload.get("followups", []),
+            meetings=state_payload.get("meetings", []),
+        )
+        return jsonify({"ok": True})
 
     return app
 

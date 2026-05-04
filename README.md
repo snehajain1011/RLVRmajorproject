@@ -8,6 +8,14 @@ If you received this project as a zip file or want a full handoff guide, read:
 docs/setup_and_run_guide.md
 ```
 
+Important naming note: the old lightweight `rlvr` path is verifier-selected trajectory
+replay, not model learning. The research-grade HPC plan for actual SFT + RLOO/GRPO
+adapter training is in:
+
+```text
+docs/real_rlvr_hpc_plan.md
+```
+
 ## What is included
 
 - A local browser task server with three verifiable interaction classes:

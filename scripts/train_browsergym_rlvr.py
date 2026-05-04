@@ -8,10 +8,10 @@ from pathlib import Path
 
 from evaluate_browsergym_rlvr import (
     TASK_IDS,
-    VerifierSelectedPolicy,
     OllamaVisionPolicy,
     run_episode,
 )
+from social_rlvr_web.oracle_policy import DynamicOraclePolicy
 
 
 def safe_policy_name(name: str) -> str:
@@ -27,7 +27,7 @@ def select_successful_trajectory(episodes: list[dict]) -> dict | None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Build a lightweight verifier-guided RLVR policy artifact."
+        description="Build a verifier-selected trajectory replay artifact. This is not model learning."
     )
     parser.add_argument("--repeats", type=int, default=1)
     parser.add_argument("--model-steps", type=int, default=4)
@@ -42,13 +42,13 @@ def main() -> None:
     parser.add_argument(
         "--out",
         type=Path,
-        default=Path("artifacts") / "rlvr_training" / "learned_policy.json",
+        default=Path("artifacts") / "trajectory_replay" / "replay_policy.json",
     )
     parser.add_argument(
         "--include-scripted-teacher",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Add verifier-selected successful trajectories when model rollouts do not solve a task.",
+        help="Add dynamic-oracle successful trajectories when model rollouts do not solve a task.",
     )
     args = parser.parse_args()
 
@@ -81,8 +81,8 @@ def main() -> None:
 
         selected = select_successful_trajectory(task_episodes)
         if selected is None and args.include_scripted_teacher:
-            teacher_episode = run_episode(task_id, VerifierSelectedPolicy(), max_eval_steps=25)
-            teacher_episode["policy"] = "verifier_guided_teacher"
+            teacher_episode = run_episode(task_id, DynamicOraclePolicy(), max_eval_steps=25)
+            teacher_episode["policy"] = "dynamic_oracle_teacher"
             task_episodes.append(teacher_episode)
             all_episodes.append(teacher_episode)
             selected = select_successful_trajectory(task_episodes)
@@ -106,7 +106,7 @@ def main() -> None:
 
     artifact = {
         "format_version": 1,
-        "method": "verifier_guided_trajectory_distillation",
+        "method": "verifier_selected_trajectory_replay",
         "base_policy": base_policy_name,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "training_config": {
@@ -124,8 +124,8 @@ def main() -> None:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(artifact, indent=2), encoding="utf-8")
     print()
-    print(f"Wrote learned RLVR policy to {args.out.resolve()}")
-    print(f"Learned task policies: {len(task_policies)}/{len(task_ids)}")
+    print(f"Wrote trajectory replay policy to {args.out.resolve()}")
+    print(f"Replay task policies: {len(task_policies)}/{len(task_ids)}")
 
 
 if __name__ == "__main__":
